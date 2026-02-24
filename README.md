@@ -43,7 +43,8 @@ bash amneziawg-install.sh
 ```bash
 scp os-amneziawg-v2.tar.gz root@<opnsense-ip>:/tmp/
 ssh root@<opnsense-ip>
-cd /tmp && tar xzf os-amneziawg-v2.tar.gz && cd os-amneziawg
+pkg install bash
+cd /tmp && tar xzf os-amneziawg-v2.tar
 sh install.sh
 ```
 
