@@ -1,0 +1,104 @@
+<?xml version="1.0"?>
+<model>
+    <mount>//OPNsense/amneziawg/instance</mount>
+    <description>AmneziaWG Instance Settings</description>
+    <version>0.0.0</version>
+    <items>
+        <enabled type="BooleanField">
+            <default>1</default>
+            <Required>N</Required>
+        </enabled>
+        <name type="TextField">
+            <Required>Y</Required>
+            <ValidationMessage>A name is required (alphanumeric, 1-15 chars)</ValidationMessage>
+            <mask>/^[a-zA-Z0-9_\-]{1,15}$/</mask>
+        </name>
+        <description type="TextField">
+            <Required>N</Required>
+        </description>
+        <interface_number type="IntegerField">
+            <Required>N</Required>
+            <Default>0</Default>
+            <MinimumValue>0</MinimumValue>
+            <MaximumValue>99</MaximumValue>
+        </interface_number>
+        <private_key type="TextField">
+            <Required>Y</Required>
+            <ValidationMessage>A private key is required</ValidationMessage>
+        </private_key>
+        <listen_port type="IntegerField">
+            <Required>N</Required>
+            <MinimumValue>1</MinimumValue>
+            <MaximumValue>65535</MaximumValue>
+        </listen_port>
+        <address type="TextField">
+            <Required>Y</Required>
+            <ValidationMessage>A tunnel address is required (e.g. 10.8.1.2/24)</ValidationMessage>
+        </address>
+        <dns type="TextField">
+            <Required>N</Required>
+        </dns>
+        <mtu type="IntegerField">
+            <Required>N</Required>
+            <MinimumValue>576</MinimumValue>
+            <MaximumValue>9000</MaximumValue>
+        </mtu>
+        <jc type="IntegerField">
+            <Required>N</Required>
+            <MinimumValue>1</MinimumValue>
+            <MaximumValue>128</MaximumValue>
+        </jc>
+        <jmin type="IntegerField">
+            <Required>N</Required>
+            <MinimumValue>1</MinimumValue>
+            <MaximumValue>1280</MaximumValue>
+        </jmin>
+        <jmax type="IntegerField">
+            <Required>N</Required>
+            <MinimumValue>1</MinimumValue>
+            <MaximumValue>1280</MaximumValue>
+        </jmax>
+        <s1 type="IntegerField">
+            <Required>N</Required>
+            <MinimumValue>0</MinimumValue>
+            <MaximumValue>1280</MaximumValue>
+        </s1>
+        <s2 type="IntegerField">
+            <Required>N</Required>
+            <MinimumValue>0</MinimumValue>
+            <MaximumValue>1280</MaximumValue>
+        </s2>
+        <h1 type="IntegerField">
+            <Required>N</Required>
+        </h1>
+        <h2 type="IntegerField">
+            <Required>N</Required>
+        </h2>
+        <h3 type="IntegerField">
+            <Required>N</Required>
+        </h3>
+        <h4 type="IntegerField">
+            <Required>N</Required>
+        </h4>
+        <peer_public_key type="TextField">
+            <Required>Y</Required>
+            <ValidationMessage>Peer public key is required</ValidationMessage>
+        </peer_public_key>
+        <peer_preshared_key type="TextField">
+            <Required>N</Required>
+        </peer_preshared_key>
+        <peer_endpoint type="TextField">
+            <Required>Y</Required>
+            <ValidationMessage>Peer endpoint is required (e.g. 1.2.3.4:51820)</ValidationMessage>
+        </peer_endpoint>
+        <peer_allowed_ips type="TextField">
+            <Required>Y</Required>
+            <ValidationMessage>Allowed IPs is required (e.g. 0.0.0.0/0)</ValidationMessage>
+        </peer_allowed_ips>
+        <peer_persistent_keepalive type="IntegerField">
+            <Required>N</Required>
+            <MinimumValue>0</MinimumValue>
+            <MaximumValue>65535</MaximumValue>
+        </peer_persistent_keepalive>
+    </items>
+</model>
