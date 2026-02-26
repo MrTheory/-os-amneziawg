@@ -54,7 +54,8 @@ bash amneziawg-install.sh
 scp os-amneziawg-v5.tar.gz root@<opnsense-ip>:/tmp/
 ssh root@<opnsense-ip>
 pkg install bash
-cd /tmp && tar xzf os-amneziawg-v5.tar.gz
+cd /tmp && ttar --no-xattrs -xzf os-amneziawg-v5.tar.gz
+cd /tmp/os-amneziawg-v5
 sh install.sh
 ```
 
