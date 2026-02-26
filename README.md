@@ -113,7 +113,10 @@ awg show
   - Source: `LAN net`
   - Destination: созданный alias
   - Gateway: `AWG_GW`
-
+- **Firewall → NAT → Outbaund - включить **Hybrid outbound NAT rule generation**
+- **Firewall → NAT → Outbaund** — добавь правило:
+  - Interface: `AWG_GW`
+  - Source address: `LAN net`
 ---
 
 ## Устранение неполадок
