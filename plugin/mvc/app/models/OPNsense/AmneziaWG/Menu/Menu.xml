@@ -1,7 +1,0 @@
-<menu>
-    <VPN>
-        <AmneziaWG cssClass="fa fa-shield fa-fw">
-            <Instances order="10" url="/ui/amneziawg/"/>
-        </AmneziaWG>
-    </VPN>
-</menu>
