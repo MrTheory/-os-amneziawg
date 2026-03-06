@@ -23,6 +23,7 @@ function awg_check_binaries(): bool
 
 define('AWG_PRIVKEY_FILE', '/usr/local/etc/amnezia/private.key');
 define('AWG_PRIVKEY_SENTINEL', '::file::');
+define('AWG_VERSION_FILE', '/usr/local/opnsense/mvc/app/models/OPNsense/AmneziaWG/version.txt');
 
 function awg_get_instances(): array
 {
@@ -408,6 +409,11 @@ switch ($action) {
             'status'  => $running ? 'ok' : 'stopped',
             'tunnels' => $tunnels,
         ]) . "\n";
+        break;
+
+    case 'version':
+        $ver = file_exists(AWG_VERSION_FILE) ? trim(file_get_contents(AWG_VERSION_FILE)) : 'unknown';
+        echo json_encode(['version' => $ver]) . "\n";
         break;
 
     case 'gen_keypair':

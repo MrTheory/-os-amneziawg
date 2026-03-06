@@ -9,8 +9,9 @@
 set -e
 set -u
 
-PLUGIN_VERSION="2.2.0"
+PLUGIN_VERSION="2.3.0"
 PLUGIN_DIR="$(dirname "$0")/plugin"
+VERSION_FILE="/usr/local/opnsense/mvc/app/models/OPNsense/AmneziaWG/version.txt"
 
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS
@@ -29,7 +30,7 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -f  /usr/local/opnsense/scripts/AmneziaWG/amneziawg-service-control.php
     rmdir  /usr/local/opnsense/scripts/AmneziaWG 2>/dev/null || true
     rm -f  /usr/local/opnsense/service/conf/actions.d/actions_amneziawg.conf
-    rm -rf /usr/local/opnsense/mvc/app/models/OPNsense/AmneziaWG
+    rm -rf /usr/local/opnsense/mvc/app/models/OPNsense/AmneziaWG  # includes version.txt
     rm -f  /usr/local/etc/amnezia/private.key
     rm -f  /usr/local/etc/amnezia/*.conf
     rmdir  /usr/local/etc/amnezia 2>/dev/null || true
@@ -57,9 +58,46 @@ fi
 # INSTALL
 # ─────────────────────────────────────────────────────────────────────────────
 
+# ─────────────────────────────────────────────────────────────────────────────
+# VERSION CHECK & CONFIRMATION
+# ─────────────────────────────────────────────────────────────────────────────
+CURRENT_VERSION="not installed"
+if [ -f "$VERSION_FILE" ]; then
+    CURRENT_VERSION=$(cat "$VERSION_FILE" 2>/dev/null || echo "unknown")
+fi
+
 echo "============================================================"
-echo "  os-amneziawg plugin installer v${PLUGIN_VERSION}"
+echo "  os-amneziawg plugin installer"
 echo "============================================================"
+echo ""
+echo "  Current version : ${CURRENT_VERSION}"
+echo "  New version     : ${PLUGIN_VERSION}"
+echo ""
+
+if [ "$CURRENT_VERSION" = "$PLUGIN_VERSION" ]; then
+    echo "  Version ${PLUGIN_VERSION} is already installed."
+    printf "  Reinstall? [y/N] "
+    read -r _CONFIRM < /dev/tty 2>/dev/null || _CONFIRM="n"
+    case "$_CONFIRM" in
+        [yY]*) ;;
+        *) echo "  Installation cancelled."; exit 0 ;;
+    esac
+elif [ "$CURRENT_VERSION" != "not installed" ]; then
+    printf "  Upgrade from ${CURRENT_VERSION} to ${PLUGIN_VERSION}? [Y/n] "
+    read -r _CONFIRM < /dev/tty 2>/dev/null || _CONFIRM="y"
+    case "$_CONFIRM" in
+        [nN]*) echo "  Installation cancelled."; exit 0 ;;
+        *) ;;
+    esac
+else
+    printf "  Install version ${PLUGIN_VERSION}? [Y/n] "
+    read -r _CONFIRM < /dev/tty 2>/dev/null || _CONFIRM="y"
+    case "$_CONFIRM" in
+        [nN]*) echo "  Installation cancelled."; exit 0 ;;
+        *) ;;
+    esac
+fi
+
 echo ""
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -203,6 +241,10 @@ install -d /usr/local/opnsense/mvc/app/models/OPNsense/AmneziaWG/ACL
 install -m 0644 "$PLUGIN_DIR/mvc/app/models/OPNsense/AmneziaWG/ACL/ACL.xml" \
                 /usr/local/opnsense/mvc/app/models/OPNsense/AmneziaWG/ACL/
 
+# Write version file
+echo "$PLUGIN_VERSION" > "$VERSION_FILE"
+chmod 0644 "$VERSION_FILE"
+
 install -d /usr/local/opnsense/mvc/app/controllers/OPNsense/AmneziaWG/Api
 install -d /usr/local/opnsense/mvc/app/controllers/OPNsense/AmneziaWG/forms
 install -m 0644 "$PLUGIN_DIR/mvc/app/controllers/OPNsense/AmneziaWG/IndexController.php" \
@@ -254,6 +296,8 @@ echo ""
 echo "============================================================"
 echo "  os-amneziawg v${PLUGIN_VERSION} installed!"
 echo "============================================================"
+echo ""
+echo "  Check version:  configctl amneziawg version"
 echo ""
 echo "  Quick start:"
 echo "  1. Refresh browser (Ctrl+F5) → VPN → AmneziaWG"

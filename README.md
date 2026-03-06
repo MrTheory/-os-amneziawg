@@ -1,6 +1,6 @@
 # os-amneziawg
 
-**AmneziaWG VPN plugin for OPNsense** — v2.2.0
+**AmneziaWG VPN plugin for OPNsense** — v2.3.0
 
 AmneziaWG — обфусцированный форк WireGuard для обхода DPI-блокировок. Этот плагин добавляет AmneziaWG в OPNsense как нативный VPN-клиент с поддержкой селективной маршрутизации.
 
@@ -59,6 +59,7 @@ sh install.sh
 ```
 
 Скрипт автоматически:
+- покажет текущую и новую версию плагина и запросит подтверждение
 - проверит наличие `awg` и модуля ядра `if_amn`
 - предложит установить недостающие пакеты из FreeBSD quarterly repo (`[Y/n]`)
 - создаст временный repo-конфиг, установит пакеты, удалит конфиг
@@ -66,6 +67,11 @@ sh install.sh
 - скопирует файлы плагина
 - установит конфиг ротации лога newsyslog
 - перезапустит configd и очистит кэш
+
+Проверить установленную версию:
+```bash
+configctl amneziawg version
+```
 
 ### 3. Настройка в GUI
 
@@ -218,7 +224,7 @@ plugin/
     │   ├── IndexController.php            # Рендеринг страницы
     │   ├── Api/GeneralController.php      # API: get/set general.enabled
     │   ├── Api/InstanceController.php     # API: get/set + genKeyPair (SEC-1/SEC-2)
-    │   ├── Api/ServiceController.php      # API: reconfigure/start/stop/restart/tunnelStatus
+    │   ├── Api/ServiceController.php      # API: reconfigure/start/stop/restart/tunnelStatus/version
     │   ├── Api/ImportController.php       # API: парсинг .conf файла (POST only)
     │   └── forms/
     │       ├── general.xml                # Форма общих настроек
@@ -231,6 +237,7 @@ plugin/
 ```
 /usr/local/etc/amnezia/private.key          (0600) — приватный ключ (не в бэкапах)
 /usr/local/etc/amnezia/awg0.conf            (0600) — конфиг туннеля
+/usr/local/opnsense/mvc/app/models/OPNsense/AmneziaWG/version.txt — версия плагина
 /var/run/amneziawg.pid                             — PID файл статуса
 /var/run/amneziawg.lock                            — lock файл от параллельных запусков
 /var/log/amneziawg.log                             — лог операций

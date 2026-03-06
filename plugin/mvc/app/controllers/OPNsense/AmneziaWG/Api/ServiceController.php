@@ -84,6 +84,20 @@ class ServiceController extends ApiMutableServiceControllerBase
     // statusAction() is inherited from ApiMutableServiceControllerBase.
 
     /**
+     * GET /api/amneziawg/service/version
+     */
+    public function versionAction()
+    {
+        $backend = new Backend();
+        $result  = $backend->configdRun('amneziawg version');
+        $decoded = json_decode($result, true);
+        if (json_last_error() === JSON_ERROR_NONE) {
+            return $decoded;
+        }
+        return ['version' => 'unknown'];
+    }
+
+    /**
      * GET /api/amneziawg/service/tunnel_status
      */
     public function tunnelStatusAction()
