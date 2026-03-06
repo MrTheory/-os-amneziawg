@@ -1,0 +1,8 @@
+<form>
+    <field>
+        <id>general.enabled</id>
+        <label>Enable AmneziaWG</label>
+        <type>checkbox</type>
+        <help>Enable the AmneziaWG VPN service</help>
+    </field>
+</form>
