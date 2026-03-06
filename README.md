@@ -115,6 +115,26 @@ awg show
   - Destination: созданный alias
   - Gateway: `AWG_GW`
 
+### 7. Outbound NAT (обязательно!)
+
+Без этого трафик через туннель не будет NATиться и не уйдёт дальше VPN-сервера.
+
+**Firewall → NAT → Outbound**
+
+1. Переключи режим на **Hybrid outbound NAT rule generation** (если ещё не переключён)
+2. Добавь правило **+**:
+
+| Поле | Значение |
+|---|---|
+| Interface | AWG (awg) |
+| TCP/IP Version | IPv4 |
+| Protocol | any |
+| Source address | LAN net |
+| Source port | any |
+| Destination address | any |
+| Destination port | any |
+| Translation / target | Interface address |
+
 ---
 
 ## Устранение неполадок
