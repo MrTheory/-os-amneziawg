@@ -113,9 +113,16 @@ function awg_write_conf(array $inst): string
     $path = AWG_CONF_DIR . '/' . $inst['interface'] . '.conf';
 
     if (!is_dir(AWG_CONF_DIR)) {
-        mkdir(AWG_CONF_DIR, 0700, true);
+        if (!mkdir(AWG_CONF_DIR, 0700, true)) {
+            awg_log('ERROR: failed to create config directory: ' . AWG_CONF_DIR);
+            return '';
+        }
     }
-    file_put_contents($path, $conf);
+    // HIGH-4: check return value of file_put_contents
+    if (file_put_contents($path, $conf) === false) {
+        awg_log('ERROR: failed to write config file: ' . $path);
+        return '';
+    }
     chmod($path, 0600);
     return $path;
 }
@@ -126,16 +133,74 @@ function awg_log(string $msg): void
     file_put_contents('/var/log/amneziawg.log', "[$ts] $msg\n", FILE_APPEND);
 }
 
+/**
+ * Run a command with a timeout. Returns [output_string, return_code].
+ * If the command exceeds $timeout seconds, it is killed and rc=124.
+ */
+function awg_exec_timeout(string $cmd, int $timeout = 30): array
+{
+    awg_log('EXEC: ' . $cmd);
+    $proc = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    if (!is_resource($proc)) {
+        awg_log('EXEC ERROR: proc_open failed for: ' . $cmd);
+        return ['proc_open failed', 1];
+    }
+    stream_set_blocking($pipes[1], false);
+    stream_set_blocking($pipes[2], false);
+
+    $stdout = '';
+    $stderr = '';
+    $start  = time();
+    $killed = false;
+
+    while (true) {
+        $status = proc_get_status($proc);
+        if (!$status['running']) {
+            // Process finished — read remaining output
+            $stdout .= stream_get_contents($pipes[1]);
+            $stderr .= stream_get_contents($pipes[2]);
+            break;
+        }
+        if ((time() - $start) >= $timeout) {
+            // Timeout — kill the process tree
+            awg_log('EXEC TIMEOUT: ' . $timeout . 's exceeded, killing pid=' . $status['pid']);
+            // Kill process group
+            @exec('kill -9 -' . $status['pid'] . ' 2>/dev/null');
+            @proc_terminate($proc, 9);
+            $killed = true;
+            break;
+        }
+        // Read available output
+        $stdout .= stream_get_contents($pipes[1]) ?: '';
+        $stderr .= stream_get_contents($pipes[2]) ?: '';
+        usleep(100000); // 100ms
+    }
+
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $rc = $killed ? 124 : ($status['exitcode'] ?? proc_close($proc));
+    if ($killed) {
+        proc_close($proc);
+    }
+
+    $output = trim($stdout . ($stderr ? "\n" . $stderr : ''));
+    awg_log('EXEC DONE: rc=' . $rc . ' | ' . substr($output, 0, 200));
+    return [$output, $rc];
+}
+
 function awg_up(array $inst): void
 {
     $path = awg_write_conf($inst);
-    $out  = [];
-    $rc   = 0;
-    exec(AWG_QUICK . ' up ' . escapeshellarg($path) . ' 2>&1', $out, $rc);
-    awg_log('up ' . $inst['interface'] . ' rc=' . $rc . ' | ' . implode(' | ', $out));
-    // Create PID file so OPNsense dashboard shows service as running
+    if ($path === '') {
+        awg_log('ERROR: failed to write config for ' . $inst['interface'] . ', skipping up');
+        return;
+    }
+    [$output, $rc] = awg_exec_timeout(AWG_QUICK . ' up ' . escapeshellarg($path) . ' 2>&1', 30);
+    awg_log('up ' . $inst['interface'] . ' rc=' . $rc . ' | ' . $output);
     if ($rc === 0) {
-        file_put_contents(AWG_PID_FILE, getmypid());
+        if (file_put_contents(AWG_PID_FILE, getmypid()) === false) {
+            awg_log('WARNING: failed to write PID file: ' . AWG_PID_FILE);
+        }
     }
 }
 
@@ -143,12 +208,9 @@ function awg_down(array $inst): void
 {
     $path = AWG_CONF_DIR . '/' . $inst['interface'] . '.conf';
     if (file_exists($path)) {
-        $out = [];
-        $rc  = 0;
-        exec(AWG_QUICK . ' down ' . escapeshellarg($path) . ' 2>&1', $out, $rc);
-        awg_log('down ' . $inst['interface'] . ' rc=' . $rc . ' | ' . implode(' | ', $out));
+        [$output, $rc] = awg_exec_timeout(AWG_QUICK . ' down ' . escapeshellarg($path) . ' 2>&1', 30);
+        awg_log('down ' . $inst['interface'] . ' rc=' . $rc . ' | ' . $output);
     }
-    // Remove PID file so OPNsense dashboard shows service as stopped
     if (file_exists(AWG_PID_FILE)) {
         unlink(AWG_PID_FILE);
     }
@@ -157,96 +219,172 @@ function awg_down(array $inst): void
 // BUG-3: awg_is_up() was declared but never used — removed.
 
 $action = $argv[1] ?? 'status';
+awg_log('ACTION: ' . $action . ' (pid=' . getmypid() . ')');
+
+// Catch fatal errors and log them
+register_shutdown_function(function () {
+    $err = error_get_last();
+    if ($err && in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR])) {
+        awg_log('PHP FATAL: ' . $err['message'] . ' in ' . $err['file'] . ':' . $err['line']);
+    }
+});
+
+// Helper: check if a PID is alive (works even without posix extension)
+function awg_pid_alive(int $pid): bool
+{
+    if ($pid <= 0) {
+        return false;
+    }
+    if (function_exists('posix_kill')) {
+        return posix_kill($pid, 0);
+    }
+    // Fallback: use kill -0 via shell
+    exec('kill -0 ' . (int)$pid . ' 2>/dev/null', $out, $rc);
+    return $rc === 0;
+}
 
 // IMP-10: flock() protection against concurrent reconfigure/start/stop/restart
+// If lock is held longer than this, force-acquire (awg-quick hung)
+define('AWG_LOCK_TIMEOUT', 120);
+
 $lockActions = ['start', 'stop', 'restart', 'reconfigure'];
 $lockFp = null;
+$lockFile = '/var/run/amneziawg.lock';
 if (in_array($action, $lockActions, true)) {
-    $lockFp = fopen('/var/run/amneziawg.lock', 'c');
+    awg_log('LOCK: acquiring for ' . $action);
+
+    // Check lock age before attempting flock — if too old, kill holder and remove
+    if (file_exists($lockFile)) {
+        $lockAge = time() - filemtime($lockFile);
+        if ($lockAge > AWG_LOCK_TIMEOUT) {
+            $stalePid = (int)trim(@file_get_contents($lockFile));
+            awg_log('LOCK: file is ' . $lockAge . 's old (limit=' . AWG_LOCK_TIMEOUT . 's), holder pid=' . $stalePid);
+            if ($stalePid > 0 && awg_pid_alive($stalePid)) {
+                awg_log('LOCK: killing hung process pid=' . $stalePid);
+                exec('kill -9 ' . (int)$stalePid . ' 2>/dev/null');
+                usleep(200000); // 200ms for process to die
+            }
+            @unlink($lockFile);
+        }
+    }
+
+    $lockFp = fopen($lockFile, 'c');
     if ($lockFp === false) {
         awg_log('ERROR: cannot open lock file');
         echo "ERROR: cannot open lock file\n";
         exit(1);
     }
+    chmod($lockFile, 0600);
+
     if (!flock($lockFp, LOCK_EX | LOCK_NB)) {
-        awg_log('SKIP: another instance of service-control is already running (action=' . $action . ')');
-        echo "OK\n"; // return OK so configd doesn't treat it as failure
+        $stalePid = (int)trim(file_get_contents($lockFile));
+        awg_log('LOCK: held by pid=' . $stalePid . ', checking alive...');
+
+        if (awg_pid_alive($stalePid)) {
+            // Check lock file age — if old enough, force-kill even if alive
+            $lockAge = time() - filemtime($lockFile);
+            if ($lockAge > AWG_LOCK_TIMEOUT) {
+                awg_log('LOCK: holder pid=' . $stalePid . ' alive but lock is ' . $lockAge . 's old, force-killing');
+                exec('kill -9 ' . (int)$stalePid . ' 2>/dev/null');
+                usleep(200000);
+            } else {
+                awg_log('SKIP: another instance (pid=' . $stalePid . ') running for ' . $lockAge . 's (action=' . $action . ')');
+                echo "OK\n";
+                fclose($lockFp);
+                exit(0);
+            }
+        }
+
+        awg_log('LOCK: stale from dead pid=' . $stalePid . ', forcing re-acquire');
         fclose($lockFp);
-        exit(0);
+        @unlink($lockFile);
+        $lockFp = fopen($lockFile, 'c');
+        if ($lockFp === false || !flock($lockFp, LOCK_EX | LOCK_NB)) {
+            awg_log('ERROR: cannot re-acquire lock after stale cleanup');
+            echo "ERROR: cannot acquire lock\n";
+            exit(1);
+        }
+        chmod($lockFile, 0600);
     }
+
+    // Touch mtime + write PID so timeout detection works
+    ftruncate($lockFp, 0);
+    fwrite($lockFp, (string)getmypid());
+    fflush($lockFp);
+    touch($lockFile);
+    awg_log('LOCK: acquired for ' . $action);
+}
+
+// Helper: bring down all awg interfaces
+function awg_stop_all(): void
+{
+    awg_log('awg_stop_all: starting');
+    $ifOut = [];
+    exec('/sbin/ifconfig -l', $ifOut);
+    $existing = explode(' ', trim($ifOut[0] ?? ''));
+    awg_log('awg_stop_all: interfaces=' . implode(',', $existing));
+    foreach ($existing as $iface) {
+        if (preg_match('/^awg\d+$/', $iface)) {
+            $conf = AWG_CONF_DIR . '/' . $iface . '.conf';
+            [$output, $rc] = awg_exec_timeout(AWG_QUICK . ' down ' . escapeshellarg($conf) . ' 2>&1', 30);
+            awg_log('down ' . $iface . ' rc=' . $rc . ' | ' . $output);
+        }
+    }
+    if (file_exists(AWG_PID_FILE)) {
+        unlink(AWG_PID_FILE);
+    }
+    awg_log('awg_stop_all: done');
+}
+
+// Helper: bring up configured instances
+function awg_start_all(): bool
+{
+    $instances = awg_get_instances();
+    if (empty($instances)) {
+        awg_log('WARNING: no enabled instances to start');
+        if (file_exists(AWG_PID_FILE)) {
+            unlink(AWG_PID_FILE);
+        }
+        return false;
+    }
+    foreach ($instances as $inst) {
+        awg_up($inst);
+    }
+    return true;
 }
 
 switch ($action) {
     case 'start':
-    case 'reconfigure':
-        // IMP-8: verify binaries before proceeding
         if (!awg_check_binaries()) {
             echo "ERROR: awg/awg-quick binaries not found. Install amnezia-tools package.\n";
             break;
         }
-        // Bring down existing interfaces first
-        $ifcfgOut2 = [];
-        exec('/sbin/ifconfig -l', $ifcfgOut2);
-        $existing = explode(' ', trim($ifcfgOut2[0] ?? ''));
-        foreach ($existing as $iface) {
-            if (preg_match('/^awg\d+$/', $iface)) {
-                $downOut2 = []; $downRc2 = 0;
-                $confPath2 = AWG_CONF_DIR . '/' . $iface . '.conf';
-                exec(AWG_QUICK . ' down ' . escapeshellarg($confPath2) . ' 2>&1', $downOut2, $downRc2);
-                awg_log('pre-down ' . $iface . ' rc=' . $downRc2 . ' | ' . implode(' | ', $downOut2));
-            }
-        }
-        // Remove stale PID if no instances will be brought up
-        $instances = awg_get_instances();
-        if (empty($instances) && file_exists(AWG_PID_FILE)) {
-            unlink(AWG_PID_FILE);
-        }
-        // Bring up configured instances
-        foreach ($instances as $inst) {
-            awg_up($inst);
-        }
+        awg_start_all();
         echo "OK\n";
         break;
 
     case 'stop':
-        $ifcfgOut3 = [];
-        exec('/sbin/ifconfig -l', $ifcfgOut3);
-        $existing = explode(' ', trim($ifcfgOut3[0] ?? ''));
-        foreach ($existing as $iface) {
-            if (preg_match('/^awg\d+$/', $iface)) {
-                $downOut3 = []; $downRc3 = 0;
-                $confPath3 = AWG_CONF_DIR . '/' . $iface . '.conf';
-                exec(AWG_QUICK . ' down ' . escapeshellarg($confPath3) . ' 2>&1', $downOut3, $downRc3);
-                awg_log('stop down ' . $iface . ' rc=' . $downRc3 . ' | ' . implode(' | ', $downOut3));
-            }
-        }
-        if (file_exists(AWG_PID_FILE)) {
-            unlink(AWG_PID_FILE);
-        }
+        awg_stop_all();
         echo "OK\n";
         break;
 
     case 'restart':
-        // Stop phase — bring down all awg interfaces and clear PID
-        $ifcfgOut4 = [];
-        exec('/sbin/ifconfig -l', $ifcfgOut4);
-        $existing = explode(' ', trim($ifcfgOut4[0] ?? ''));
-        foreach ($existing as $iface) {
-            if (preg_match('/^awg\d+$/', $iface)) {
-                $downOut4 = []; $downRc4 = 0;
-                $confPath4 = AWG_CONF_DIR . '/' . $iface . '.conf';
-                exec(AWG_QUICK . ' down ' . escapeshellarg($confPath4) . ' 2>&1', $downOut4, $downRc4);
-                awg_log('restart down ' . $iface . ' rc=' . $downRc4 . ' | ' . implode(' | ', $downOut4));
-            }
+        if (!awg_check_binaries()) {
+            echo "ERROR: awg/awg-quick binaries not found. Install amnezia-tools package.\n";
+            break;
         }
-        // BUG-4 fix: remove PID after stop phase so it reflects correct state
-        if (file_exists(AWG_PID_FILE)) {
-            unlink(AWG_PID_FILE);
+        awg_stop_all();
+        awg_start_all();
+        echo "OK\n";
+        break;
+
+    case 'reconfigure':
+        if (!awg_check_binaries()) {
+            echo "ERROR: awg/awg-quick binaries not found. Install amnezia-tools package.\n";
+            break;
         }
-        // Start phase
-        foreach (awg_get_instances() as $inst) {
-            awg_up($inst);
-        }
+        awg_stop_all();
+        awg_start_all();
         echo "OK\n";
         break;
 
@@ -273,8 +411,31 @@ switch ($action) {
         break;
 
     case 'gen_keypair':
-        $privkey = trim(shell_exec(AWG_BIN . ' genkey'));
-        $pubkey  = trim(shell_exec('echo ' . escapeshellarg($privkey) . ' | ' . AWG_BIN . ' pubkey'));
+        // HIGH-1/CRIT-3: validate shell_exec results — awg may not be installed or may fail
+        $privkeyRaw = shell_exec(AWG_BIN . ' genkey 2>/dev/null');
+        if ($privkeyRaw === null || trim($privkeyRaw) === '') {
+            awg_log('ERROR: awg genkey returned empty result');
+            echo json_encode(['status' => 'error', 'message' => 'Failed to generate private key — is amnezia-tools installed?']) . "\n";
+            break;
+        }
+        $privkey = trim($privkeyRaw);
+        if (!preg_match('/^[A-Za-z0-9+\/]{43}=$/', $privkey)) {
+            awg_log('ERROR: awg genkey returned invalid Base64: ' . substr($privkey, 0, 10) . '...');
+            echo json_encode(['status' => 'error', 'message' => 'Generated private key has invalid format']) . "\n";
+            break;
+        }
+        $pubkeyRaw = shell_exec('echo ' . escapeshellarg($privkey) . ' | ' . AWG_BIN . ' pubkey 2>/dev/null');
+        if ($pubkeyRaw === null || trim($pubkeyRaw) === '') {
+            awg_log('ERROR: awg pubkey returned empty result');
+            echo json_encode(['status' => 'error', 'message' => 'Failed to derive public key']) . "\n";
+            break;
+        }
+        $pubkey = trim($pubkeyRaw);
+        if (!preg_match('/^[A-Za-z0-9+\/]{43}=$/', $pubkey)) {
+            awg_log('ERROR: awg pubkey returned invalid Base64: ' . substr($pubkey, 0, 10) . '...');
+            echo json_encode(['status' => 'error', 'message' => 'Derived public key has invalid format']) . "\n";
+            break;
+        }
         echo json_encode(['status' => 'ok', 'private_key' => $privkey, 'public_key' => $pubkey]) . "\n";
         break;
 

@@ -1,0 +1,30 @@
+#!/bin/sh
+
+# AmneziaWG autostart on boot
+# Installed to /usr/local/etc/rc.syshook.d/start/50-amneziawg
+
+LOG="/tmp/amneziawg_syshook.log"
+
+exec >> "$LOG" 2>&1
+echo ""
+echo "=== amneziawg syshook start: $(date) ==="
+
+AWG_BIN="/usr/local/bin/awg"
+AWG_QUICK="/usr/local/bin/awg-quick"
+SERVICE_CONTROL="/usr/local/opnsense/scripts/AmneziaWG/amneziawg-service-control.php"
+
+# Check if enabled in config.xml
+ENABLED=$(php -r 'require_once("config.inc"); $cfg = OPNsense\Core\Config::getInstance()->object(); echo (string)($cfg->OPNsense->amneziawg->general->enabled ?? "0");' 2>/dev/null)
+
+echo "enabled=[$ENABLED]"
+
+[ "$ENABLED" = "1" ] || { echo "amneziawg disabled, exit"; exit 0; }
+[ -x "$AWG_BIN" ]    || { echo "awg binary not found"; exit 0; }
+[ -x "$AWG_QUICK" ]  || { echo "awg-quick binary not found"; exit 0; }
+[ -f "$SERVICE_CONTROL" ] || { echo "service-control not found"; exit 0; }
+
+echo "starting amneziawg via service-control..."
+php "$SERVICE_CONTROL" start 2>&1
+
+echo "=== done: $(date) ==="
+exit 0

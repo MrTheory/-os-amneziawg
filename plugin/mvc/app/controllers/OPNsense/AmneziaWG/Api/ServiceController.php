@@ -12,12 +12,24 @@ class ServiceController extends ApiMutableServiceControllerBase
     protected static $internalServiceEnabled  = 'enabled';
     protected static $internalServiceName     = 'amneziawg';
 
+    private function runAction(string $command): array
+    {
+        $backend = new Backend();
+        $output  = trim((string)$backend->configdRun($command));
+        $failed  = empty($output)
+                || stripos($output, 'ERROR') !== false
+                || stripos($output, 'failed') !== false;
+        return [
+            'result'  => $failed ? 'failed' : 'ok',
+            'message' => $output ?: 'No response from configd',
+        ];
+    }
+
     public function reconfigureAction()
     {
         if (!$this->request->isPost()) {
             return ['result' => 'failed'];
         }
-        // IMP-7 fix: check general.enabled before running reconfigure
         $general = new \OPNsense\AmneziaWG\General();
         if ((string)$general->enabled !== '1') {
             return [
@@ -26,21 +38,55 @@ class ServiceController extends ApiMutableServiceControllerBase
                 'output' => 'Service is disabled in General settings',
             ];
         }
-        $backend = new Backend();
-        $output  = trim($backend->configdRun('amneziawg reconfigure'));
-        // BUG-12 FIX: robust status check (matches os-xray pattern)
-        $success = !empty($output)
-            && strpos($output, 'OK') !== false
-            && stripos($output, 'ERROR') === false
-            && stripos($output, 'failed') === false;
+        $res = $this->runAction('amneziawg reconfigure');
+        $success = ($res['result'] === 'ok')
+            && strpos($res['message'], 'OK') !== false;
         return [
             'result' => $success ? 'ok' : 'failed',
             'status' => $success ? 'ok' : 'failed',
-            'output' => $output,
+            'output' => $res['message'],
         ];
     }
 
-    public function statusAction()
+    /**
+     * POST /api/amneziawg/service/start
+     */
+    public function startAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+        return $this->runAction('amneziawg start');
+    }
+
+    /**
+     * POST /api/amneziawg/service/stop
+     */
+    public function stopAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+        return $this->runAction('amneziawg stop');
+    }
+
+    /**
+     * POST /api/amneziawg/service/restart
+     */
+    public function restartAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+        return $this->runAction('amneziawg restart');
+    }
+
+    // statusAction() is inherited from ApiMutableServiceControllerBase.
+
+    /**
+     * GET /api/amneziawg/service/tunnel_status
+     */
+    public function tunnelStatusAction()
     {
         $backend = new Backend();
         $result  = $backend->configdRun('amneziawg status');
@@ -50,4 +96,5 @@ class ServiceController extends ApiMutableServiceControllerBase
         }
         return ['status' => 'error', 'message' => $result];
     }
+
 }

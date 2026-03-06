@@ -63,7 +63,13 @@ class InstanceController extends ApiMutableModelControllerBase
                 ];
             }
             // Real key submitted — persist to protected file
-            $this->writePrivateKey($submitted);
+            try {
+                $this->writePrivateKey($submitted);
+            } catch (\RuntimeException $e) {
+                return ['result' => 'failed', 'validations' => [
+                    'instance.private_key' => $e->getMessage()
+                ]];
+            }
         } elseif ($isBlank) {
             // Blank submitted and no key file exists yet — reject
             if (!file_exists(self::PRIVKEY_FILE)) {
@@ -92,12 +98,23 @@ class InstanceController extends ApiMutableModelControllerBase
         $result  = $backend->configdRun('amneziawg gen_keypair');
         $decoded = json_decode($result, true);
 
-        if (json_last_error() !== JSON_ERROR_NONE || !isset($decoded['private_key'])) {
-            return ['status' => 'error', 'message' => 'Failed to generate key pair'];
+        if (json_last_error() !== JSON_ERROR_NONE || !isset($decoded['private_key']) || !isset($decoded['public_key'])) {
+            $errMsg = $decoded['message'] ?? 'Failed to generate key pair';
+            return ['status' => 'error', 'message' => $errMsg];
+        }
+
+        // HIGH-1: validate key format before trusting shell output
+        if (!preg_match('/^[A-Za-z0-9+\/]{43}=$/', $decoded['private_key'])
+            || !preg_match('/^[A-Za-z0-9+\/]{43}=$/', $decoded['public_key'])) {
+            return ['status' => 'error', 'message' => 'Generated keys have invalid Base64 format'];
         }
 
         // SEC-2: store private key in file only, never expose it in the response
-        $this->writePrivateKey($decoded['private_key']);
+        try {
+            $this->writePrivateKey($decoded['private_key']);
+        } catch (\RuntimeException $e) {
+            return ['status' => 'error', 'message' => $e->getMessage()];
+        }
 
         // Persist sentinel into config.xml immediately so the model stays consistent
         $mdl = $this->getModel();
@@ -113,14 +130,20 @@ class InstanceController extends ApiMutableModelControllerBase
 
     /**
      * Write the private key to the protected file with mode 0600.
+     * @throws \RuntimeException if write fails
      */
     private function writePrivateKey(string $key): void
     {
         $dir = dirname(self::PRIVKEY_FILE);
         if (!is_dir($dir)) {
-            mkdir($dir, 0700, true);
+            if (!mkdir($dir, 0700, true)) {
+                throw new \RuntimeException('Failed to create directory: ' . $dir);
+            }
         }
-        file_put_contents(self::PRIVKEY_FILE, trim($key) . "\n");
+        // HIGH-4: check return value of file_put_contents
+        if (file_put_contents(self::PRIVKEY_FILE, trim($key) . "\n") === false) {
+            throw new \RuntimeException('Failed to write private key file: ' . self::PRIVKEY_FILE);
+        }
         chmod(self::PRIVKEY_FILE, 0600);
     }
 }

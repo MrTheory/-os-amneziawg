@@ -9,7 +9,7 @@
 set -e
 set -u
 
-PLUGIN_VERSION="5.1.0"
+PLUGIN_VERSION="2.2.0"
 PLUGIN_DIR="$(dirname "$0")/plugin"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -37,6 +37,7 @@ if [ "${1:-}" = "uninstall" ]; then
     rm -rf /usr/local/opnsense/mvc/app/views/OPNsense/AmneziaWG
     rm -f  /usr/local/etc/inc/plugins.inc.d/amneziawg.inc
     rm -f  /etc/newsyslog.conf.d/amneziawg.conf
+    rm -f  /usr/local/etc/rc.syshook.d/start/50-amneziawg
 
     echo "==> Restarting configd..."
     service configd restart
@@ -232,6 +233,11 @@ install -m 0644 "$PLUGIN_DIR/etc/newsyslog.conf.d/amneziawg.conf" \
                 /etc/newsyslog.conf.d/
 
 install -d -m 0700 /usr/local/etc/amnezia
+
+# MED-2: install rc.syshook for autostart on boot
+install -d /usr/local/etc/rc.syshook.d/start
+install -m 0755 "$PLUGIN_DIR/etc/rc.syshook.d/start/50-amneziawg" \
+                /usr/local/etc/rc.syshook.d/start/
 
 echo "[OK]  Plugin files installed."
 
