@@ -1,6 +1,6 @@
 # os-amneziawg
 
-**AmneziaWG VPN plugin for OPNsense** — v2.3.0
+**AmneziaWG VPN plugin for OPNsense** — v2.3.1
 
 AmneziaWG — обфусцированный форк WireGuard для обхода DPI-блокировок. Этот плагин добавляет AmneziaWG в OPNsense как нативный VPN-клиент с поддержкой селективной маршрутизации.
 
@@ -145,54 +145,139 @@ awg show
 
 ## Устранение неполадок
 
-**Туннель не поднимается**
+### Диагностика — с чего начать
+
+```bash
+# 1. Версия плагина
+configctl amneziawg version
+
+# 2. Статус туннеля
+awg show
+
+# 3. Лог операций плагина
+cat /var/log/amneziawg.log
+
+# 4. Модуль ядра загружен?
+kldstat | grep amn
+
+# 5. Бинарники на месте?
+ls -la /usr/local/bin/awg /usr/local/bin/awg-quick
+
+# 6. Сгенерированный конфиг
+cat /usr/local/etc/amnezia/awg0.conf
+
+# 7. Интерфейс существует?
+ifconfig -a | grep awg
+```
+
+### Туннель не поднимается
+
 ```bash
 # Запустить вручную и посмотреть вывод
 php /usr/local/opnsense/scripts/AmneziaWG/amneziawg-service-control.php reconfigure
-
-# Проверить загрузку модуля ядра
-kldstat | grep amn
-
-# Посмотреть лог операций плагина
-cat /var/log/amneziawg.log
 ```
 
-**Сервис отображается как "stopped" в дашборде после перезагрузки**
+| Ошибка в логе | Причина | Решение |
+|---|---|---|
+| `ERROR: binary not found` | awg/awg-quick не установлены | Запусти `install.sh` заново |
+| `ERROR: private key file not found` | Файл ключа отсутствует | Сгенерируй keypair в GUI |
+| `up awg0 rc=1` | Ошибка конфига или модуль не загружен | Проверь `kldstat`, проверь конфиг |
+| `SKIP: another instance` | Lock занят параллельным процессом | Подожди или удали `/var/run/amneziawg.lock` |
+| `EXEC TIMEOUT: 30s` | awg-quick завис | Процесс убит автоматически, проверь сеть/DNS |
 
-Если `General → Enable AmneziaWG` включён, сервис должен стартовать автоматически. Если нет — проверь лог и нажми Start:
+Если модуль ядра не загружен:
 ```bash
+kldload if_amn
+grep -q 'if_amn_load' /boot/loader.conf || echo 'if_amn_load="YES"' >> /boot/loader.conf
+```
+
+### Сервис "stopped" в дашборде после перезагрузки
+
+AmneziaWG запускается автоматически при загрузке через syshook (`/usr/local/etc/rc.syshook.d/start/50-amneziawg`), если `General → Enable AmneziaWG` включён. Если не стартует:
+
+```bash
+# Проверь лог
 tail /var/log/amneziawg.log
+
+# Проверь syshook скрипт
+cat /usr/local/etc/rc.syshook.d/start/50-amneziawg
+
+# Запусти вручную
 configctl amneziawg start
 ```
 
-**Меню VPN → AmneziaWG не появляется**
+### Меню VPN → AmneziaWG не появляется
+
 ```bash
 rm -f /var/lib/php/tmp/opnsense_menu_cache.xml
-# Затем Ctrl+F5
+# Затем Ctrl+F5 в браузере
 ```
 
-**Частичная работа (сайты открываются, видео не грузит)**
+### Частичная работа (сайты открываются, видео/тяжёлые страницы не грузят)
 
-Проверь MSS Clamping (шаг 5). Попробуй уменьшить Max MSS до 1360 или 1280.
+Не настроен MSS Clamping (шаг 5). **Firewall → Settings → Normalization → +**:
+- Interface: AWG_VPN, Protocol: TCP, Max MSS: **1380**
+- Если не помогает — попробуй 1360 или 1280
 
-**Кнопка Apply / Start / Stop не работает ("No response from configd")**
+### Кнопка Apply / Start / Stop не работает ("No response from configd")
 
-1. Перезапусти configd: `service configd restart`
-2. Проверь lock: `cat /var/run/amneziawg.lock` — если PID зависшего процесса, убей его:
 ```bash
+# 1. Перезапусти configd
+service configd restart
+
+# 2. Проверь lock-файл — зависший процесс?
+cat /var/run/amneziawg.lock
+# Если показывает PID:
 kill -9 $(cat /var/run/amneziawg.lock) 2>/dev/null
 rm -f /var/run/amneziawg.lock
 service configd restart
-```
-3. Проверь лог: `tail -20 /var/log/amneziawg.log`
 
-**Ошибки PHP**
+# 3. Посмотри лог
+tail -20 /var/log/amneziawg.log
+```
+
+> Lock-файл имеет автоматическое восстановление: если процесс-владелец мёртв — lock переберётся автоматически. Если завис дольше 120 секунд — будет убит принудительно.
+
+### Apply показывает "AmneziaWG is disabled"
+
+Это ожидаемое поведение когда `General → Enable AmneziaWG` не отмечен. Включи сервис и нажми Apply снова.
+
+### Проблемы с приватным ключом
+
 ```bash
-cat /var/lib/php/tmp/PHP_errors.log
-configctl amneziawg status
+# Файл ключа существует?
+ls -la /usr/local/etc/amnezia/private.key
+
+# В config.xml должен быть sentinel (не сам ключ!)
+grep -A1 'private_key' /conf/config.xml
+# Ожидается: ::file::
+
+# Перегенерировать пару ключей
+configctl amneziawg gen_keypair
 ```
 
-**Удаление плагина**
+### Где искать логи
+
+| Лог | Путь | Содержит |
+|---|---|---|
+| Плагин | `/var/log/amneziawg.log` | Все операции с временными метками |
+| PHP ошибки | `/var/lib/php/tmp/PHP_errors.log` | Ошибки OPNsense PHP |
+| Система | `/var/log/system/latest.log` | Ошибки configd |
+
+### Полезные команды
+
+```bash
+awg show                               # статус туннеля, handshake
+awg show awg0 transfer                 # переданные байты
+configctl amneziawg status             # статус через configd (JSON)
+configctl amneziawg version            # версия плагина
+ifconfig awg0                          # детали интерфейса
+netstat -rn | grep awg                 # таблица маршрутизации
+tail -f /var/log/amneziawg.log         # мониторинг лога в реальном времени
+```
+
+### Удаление плагина
+
 ```bash
 sh install.sh uninstall
 ```

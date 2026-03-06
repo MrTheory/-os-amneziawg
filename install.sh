@@ -9,7 +9,7 @@
 set -e
 set -u
 
-PLUGIN_VERSION="2.3.0"
+PLUGIN_VERSION="2.3.1"
 PLUGIN_DIR="$(dirname "$0")/plugin"
 VERSION_FILE="/usr/local/opnsense/mvc/app/models/OPNsense/AmneziaWG/version.txt"
 
