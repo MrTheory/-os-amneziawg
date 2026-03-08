@@ -75,23 +75,27 @@
         </s2>
         <h1 type="IntegerField">
             <Required>N</Required>
-            <MinimumValue>1</MinimumValue>
+            <MinimumValue>5</MinimumValue>
             <MaximumValue>4294967295</MaximumValue>
+            <ValidationMessage>H1 must be in range 5-4294967295 (values 1-4 are reserved)</ValidationMessage>
         </h1>
         <h2 type="IntegerField">
             <Required>N</Required>
-            <MinimumValue>1</MinimumValue>
+            <MinimumValue>5</MinimumValue>
             <MaximumValue>4294967295</MaximumValue>
+            <ValidationMessage>H2 must be in range 5-4294967295 (values 1-4 are reserved)</ValidationMessage>
         </h2>
         <h3 type="IntegerField">
             <Required>N</Required>
-            <MinimumValue>1</MinimumValue>
+            <MinimumValue>5</MinimumValue>
             <MaximumValue>4294967295</MaximumValue>
+            <ValidationMessage>H3 must be in range 5-4294967295 (values 1-4 are reserved)</ValidationMessage>
         </h3>
         <h4 type="IntegerField">
             <Required>N</Required>
-            <MinimumValue>1</MinimumValue>
+            <MinimumValue>5</MinimumValue>
             <MaximumValue>4294967295</MaximumValue>
+            <ValidationMessage>H4 must be in range 5-4294967295 (values 1-4 are reserved)</ValidationMessage>
         </h4>
         <peer_public_key type="TextField">
             <Required>Y</Required>

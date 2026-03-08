@@ -84,6 +84,27 @@ class InstanceController extends ApiMutableModelControllerBase
         // Always store the sentinel in config.xml, never the raw key
         $_POST['instance']['private_key'] = self::PRIVKEY_SENTINEL;
 
+        // Validate H1-H4: values must not intersect each other (awg driver requirement)
+        $hFields = ['h1', 'h2', 'h3', 'h4'];
+        $hValues = [];
+        $validationErrors = [];
+        foreach ($hFields as $hf) {
+            $val = trim($body[$hf] ?? '');
+            if ($val !== '') {
+                $intVal = (int)$val;
+                if ($intVal < 5) {
+                    $validationErrors["instance.{$hf}"] = strtoupper($hf) . ' must be >= 5 (values 1-4 are reserved for WireGuard packet types)';
+                } elseif (in_array($intVal, $hValues, true)) {
+                    $validationErrors["instance.{$hf}"] = strtoupper($hf) . ' must not have the same value as another H parameter';
+                } else {
+                    $hValues[] = $intVal;
+                }
+            }
+        }
+        if (!empty($validationErrors)) {
+            return ['result' => 'failed', 'validations' => $validationErrors];
+        }
+
         return parent::setAction();
     }
 

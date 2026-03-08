@@ -92,6 +92,22 @@ function awg_write_conf(array $inst): string
     // Obfuscation parameters
     $obf = ['jc'=>'Jc','jmin'=>'Jmin','jmax'=>'Jmax','s1'=>'S1','s2'=>'S2',
             'h1'=>'H1','h2'=>'H2','h3'=>'H3','h4'=>'H4'];
+    // Validate H1-H4: must be >= 5 and must not intersect each other
+    $hVals = [];
+    foreach (['h1','h2','h3','h4'] as $hk) {
+        $hv = (int)($inst[$hk] ?? 0);
+        if ($hv > 0 && $hv < 5) {
+            awg_log("WARNING: {$hk}={$hv} is invalid (must be >= 5, values 1-4 reserved). Skipping {$hk}.");
+            $inst[$hk] = '';
+        } elseif ($hv >= 5) {
+            if (in_array($hv, $hVals, true)) {
+                awg_log("WARNING: {$hk}={$hv} duplicates another H parameter. Skipping {$hk}.");
+                $inst[$hk] = '';
+            } else {
+                $hVals[] = $hv;
+            }
+        }
+    }
     foreach ($obf as $k => $label) {
         if (!empty($inst[$k])) {
             $lines[] = "$label = " . awg_sanitize($inst[$k]);
