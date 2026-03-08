@@ -1,6 +1,6 @@
 # os-amneziawg
 
-**AmneziaWG VPN plugin for OPNsense** — v2.3.2
+**AmneziaWG VPN plugin for OPNsense** — v2.4.1
 
 AmneziaWG — обфусцированный форк WireGuard для обхода DPI-блокировок. Этот плагин добавляет AmneziaWG в OPNsense как нативный VPN-клиент с поддержкой селективной маршрутизации.
 

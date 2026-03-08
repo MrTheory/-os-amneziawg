@@ -176,6 +176,152 @@
             });
         });
 
+        // ── Diagnostics tab ──────────────────────────────────────────
+        function loadDiagnostics() {
+            $('#diagLoading').show();
+            $('#diagError').hide();
+            ajaxGet('/api/amneziawg/service/diagnostics', {}, function (data) {
+                $('#diagLoading').hide();
+                if (data.error) {
+                    $('#diagError').text(data.error).show();
+                    return;
+                }
+                var running = (data.status === 'running');
+                $('#diag_status').html(running
+                    ? '<span class="label label-success">running</span>'
+                    : '<span class="label label-danger">' + (data.status || 'unknown') + '</span>');
+                $('#diag_interface').text(data.interface || '-');
+                $('#diag_ip').text(data.ip || '-');
+                $('#diag_mtu').text(data.mtu || '-');
+                $('#diag_pubkey').text(data.public_key || '-');
+                $('#diag_listen_port').text(data.listen_port || '-');
+                $('#diag_peer_pubkey').text(data.peer_public_key || '-');
+                $('#diag_peer_endpoint').text(data.peer_endpoint || '-');
+                $('#diag_peer_allowed_ips').text(data.peer_allowed_ips || '-');
+                $('#diag_handshake').text(data.latest_handshake || 'never');
+                $('#diag_transfer_rx').text(data.transfer_rx || '0 B');
+                $('#diag_transfer_tx').text(data.transfer_tx || '0 B');
+                $('#diag_netstat_rx').text((data.bytes_in_hr || '0 B') + ' (' + (data.packets_in || 0) + ' pkts)');
+                $('#diag_netstat_tx').text((data.bytes_out_hr || '0 B') + ' (' + (data.packets_out || 0) + ' pkts)');
+                $('#diag_uptime').text(data.uptime || '-');
+            });
+        }
+
+        var _diagAutoRefresh = null;
+        $('a[href="#diagnostics"]').on('shown.bs.tab', function () {
+            loadDiagnostics();
+            if (!_diagAutoRefresh) {
+                _diagAutoRefresh = setInterval(function () {
+                    if ($('#diagnostics').hasClass('active')) {
+                        loadDiagnostics();
+                    }
+                }, 30000);
+            }
+        });
+
+        $('#btnDiagRefresh').click(function () {
+            loadDiagnostics();
+        });
+
+        // ── Test connection ─────────────────────────────────────────
+        $('#btnTestConnect').click(function () {
+            var $btn = $(this);
+            $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> {{ lang._("Testing...") }}');
+            $('#testResult').hide();
+            $.ajax({
+                url: '/api/amneziawg/service/testconnect',
+                type: 'POST',
+                dataType: 'json',
+                timeout: 20000,
+                success: function (data) {
+                    $btn.prop('disabled', false).html('<i class="fa fa-bolt"></i> {{ lang._("Test Connection") }}');
+                    var ok = (data.status === 'ok');
+                    $('#testResult')
+                        .removeClass('alert-success alert-danger')
+                        .addClass(ok ? 'alert-success' : 'alert-danger')
+                        .html('<strong>' + (ok ? '{{ lang._("Success") }}' : '{{ lang._("Failed") }}') + ':</strong> ' + (data.message || ''))
+                        .show();
+                },
+                error: function () {
+                    $btn.prop('disabled', false).html('<i class="fa fa-bolt"></i> {{ lang._("Test Connection") }}');
+                    $('#testResult').removeClass('alert-success').addClass('alert-danger')
+                        .html('<strong>{{ lang._("Error") }}:</strong> {{ lang._("Request failed") }}').show();
+                }
+            });
+        });
+
+        // ── Log tab ─────────────────────────────────────────────────
+        function loadLog() {
+            $('#btnLogRefresh').prop('disabled', true);
+            $('#logContent').text('{{ lang._("Loading...") }}');
+            $.post('/api/amneziawg/service/log', null, function (data) {
+                $('#logContent').text(data.log || '{{ lang._("Log is empty") }}');
+                $('#btnLogRefresh').prop('disabled', false);
+            }, 'json').fail(function () {
+                $('#logContent').text('{{ lang._("Failed to load log") }}');
+                $('#btnLogRefresh').prop('disabled', false);
+            });
+        }
+
+        $('a[href="#logs"]').on('shown.bs.tab', function () {
+            loadLog();
+        });
+
+        $('#btnLogRefresh').click(function () {
+            loadLog();
+        });
+
+        // ── Copy Debug Info ─────────────────────────────────────────
+        $('#btnCopyDebug').click(function () {
+            var diagDone = $.Deferred(), logDone = $.Deferred();
+            var diagData = {}, logText = '';
+
+            ajaxGet('/api/amneziawg/service/diagnostics', {}, function (data) {
+                diagData = data;
+                diagDone.resolve();
+            });
+            $.post('/api/amneziawg/service/log', null, function (data) {
+                logText = (data && data.log) || '';
+                logDone.resolve();
+            }, 'json').fail(function () { logDone.resolve(); });
+
+            $.when(diagDone, logDone).done(function () {
+                var info = '=== os-amneziawg Debug Info ===\n'
+                    + 'Date: ' + new Date().toISOString() + '\n\n'
+                    + '=== Diagnostics ===\n'
+                    + JSON.stringify(diagData, null, 2) + '\n\n'
+                    + '=== Log (last 150 lines) ===\n'
+                    + logText + '\n';
+                $('#debugInfoContent').val(info);
+                $('#debugInfoModal').modal('show');
+            });
+        });
+
+        // ── Validate config ─────────────────────────────────────────
+        $('#btnValidate').click(function () {
+            var $btn = $(this);
+            $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
+            $.ajax({
+                url: '/api/amneziawg/service/validate',
+                type: 'POST',
+                dataType: 'json',
+                timeout: 15000,
+                success: function (data) {
+                    $btn.prop('disabled', false).html('<i class="fa fa-check-circle"></i> {{ lang._("Validate Config") }}');
+                    var ok = (data.result === 'ok');
+                    BootstrapDialog.show({
+                        type: ok ? BootstrapDialog.TYPE_SUCCESS : BootstrapDialog.TYPE_DANGER,
+                        title: '{{ lang._("Config Validation") }}',
+                        message: ok ? '{{ lang._("Configuration is valid.") }}' : ('{{ lang._("Validation failed:") }} ' + (data.message || '')),
+                        buttons: [{ label: '{{ lang._("Close") }}', action: function (d) { d.close(); } }]
+                    });
+                },
+                error: function () {
+                    $btn.prop('disabled', false).html('<i class="fa fa-check-circle"></i> {{ lang._("Validate Config") }}');
+                }
+            });
+        });
+
         // ── Tab hash ──────────────────────────────────────────────────
         if (window.location.hash !== "") {
             $('a[href="' + window.location.hash + '"]').click();
@@ -189,6 +335,8 @@
 <ul class="nav nav-tabs" data-tabs="tabs" id="maintabs">
     <li class="active"><a data-toggle="tab" href="#instance">{{ lang._('Instance') }}</a></li>
     <li><a data-toggle="tab" href="#general">{{ lang._('General') }}</a></li>
+    <li><a data-toggle="tab" href="#diagnostics">{{ lang._('Diagnostics') }}</a></li>
+    <li><a data-toggle="tab" href="#logs">{{ lang._('Log') }}</a></li>
 </ul>
 
 <div class="tab-content content-box">
@@ -244,9 +392,105 @@
         {{ partial("layout_partials/base_form", ['fields': generalForm, 'id': 'frm_general_settings']) }}
     </div>
 
+    <div id="diagnostics" class="tab-pane fade in">
+        <div style="padding: 15px;">
+            <div style="margin-bottom: 10px; display: flex; gap: 6px; align-items: center;">
+                <button id="btnDiagRefresh" class="btn btn-sm btn-default">
+                    <i class="fa fa-refresh"></i> {{ lang._('Refresh') }}
+                </button>
+                <button id="btnTestConnect" class="btn btn-sm btn-primary">
+                    <i class="fa fa-bolt"></i> {{ lang._('Test Connection') }}
+                </button>
+                <button id="btnValidate" class="btn btn-sm btn-default">
+                    <i class="fa fa-check-circle"></i> {{ lang._('Validate Config') }}
+                </button>
+                <button id="btnCopyDebug" class="btn btn-sm btn-default">
+                    <i class="fa fa-clipboard"></i> {{ lang._('Copy Debug Info') }}
+                </button>
+            </div>
+
+            <div id="testResult" class="alert" style="display: none;"></div>
+            <div id="diagError" class="alert alert-danger" style="display: none;"></div>
+            <div id="diagLoading" style="display: none;">
+                <i class="fa fa-spinner fa-spin"></i> {{ lang._('Loading...') }}
+            </div>
+
+            <table class="table table-striped table-condensed">
+                <thead>
+                    <tr><th colspan="2">{{ lang._('Interface') }}</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td style="width:200px;">{{ lang._('Status') }}</td><td id="diag_status">-</td></tr>
+                    <tr><td>{{ lang._('Interface') }}</td><td id="diag_interface">-</td></tr>
+                    <tr><td>{{ lang._('IP Address') }}</td><td id="diag_ip">-</td></tr>
+                    <tr><td>{{ lang._('MTU') }}</td><td id="diag_mtu">-</td></tr>
+                    <tr><td>{{ lang._('Public Key') }}</td><td id="diag_pubkey" style="word-break:break-all;">-</td></tr>
+                    <tr><td>{{ lang._('Listen Port') }}</td><td id="diag_listen_port">-</td></tr>
+                    <tr><td>{{ lang._('Uptime') }}</td><td id="diag_uptime">-</td></tr>
+                </tbody>
+                <thead>
+                    <tr><th colspan="2">{{ lang._('Peer') }}</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>{{ lang._('Public Key') }}</td><td id="diag_peer_pubkey" style="word-break:break-all;">-</td></tr>
+                    <tr><td>{{ lang._('Endpoint') }}</td><td id="diag_peer_endpoint">-</td></tr>
+                    <tr><td>{{ lang._('Allowed IPs') }}</td><td id="diag_peer_allowed_ips">-</td></tr>
+                    <tr><td>{{ lang._('Latest Handshake') }}</td><td id="diag_handshake">-</td></tr>
+                    <tr><td>{{ lang._('Persistent Keepalive') }}</td><td>-</td></tr>
+                </tbody>
+                <thead>
+                    <tr><th colspan="2">{{ lang._('Traffic') }}</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>{{ lang._('Transfer RX (awg)') }}</td><td id="diag_transfer_rx">-</td></tr>
+                    <tr><td>{{ lang._('Transfer TX (awg)') }}</td><td id="diag_transfer_tx">-</td></tr>
+                    <tr><td>{{ lang._('Netstat RX') }}</td><td id="diag_netstat_rx">-</td></tr>
+                    <tr><td>{{ lang._('Netstat TX') }}</td><td id="diag_netstat_tx">-</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="logs" class="tab-pane fade in">
+        <div style="padding: 15px;">
+            <div style="margin-bottom: 10px;">
+                <button id="btnLogRefresh" class="btn btn-sm btn-default">
+                    <i class="fa fa-refresh"></i> {{ lang._('Refresh') }}
+                </button>
+            </div>
+            <pre id="logContent" style="max-height: 500px; overflow-y: auto; font-size: 12px; background: #1e1e1e; color: #d4d4d4; padding: 12px; border-radius: 4px;">{{ lang._('Switch to this tab to load log...') }}</pre>
+        </div>
+    </div>
+
 </div>
 
 {{ partial('layout_partials/base_apply_button', {'data_endpoint': '/api/amneziawg/service/reconfigure'}) }}
+
+<!-- Debug Info Modal -->
+<div class="modal fade" id="debugInfoModal" tabindex="-1" role="dialog">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                <h4 class="modal-title">
+                    <i class="fa fa-clipboard"></i> {{ lang._('Debug Info') }}
+                </h4>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted">{{ lang._('Copy this information and share it when reporting issues.') }}</p>
+                <textarea id="debugInfoContent" class="form-control" rows="20"
+                    style="font-family: monospace; font-size: 11px;" readonly></textarea>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary"
+                    onclick="$('#debugInfoContent').select(); document.execCommand('copy');">
+                    <i class="fa fa-clipboard"></i> {{ lang._('Copy to Clipboard') }}
+                </button>
+                <button type="button" class="btn btn-default" data-dismiss="modal">{{ lang._('Close') }}</button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Import Modal -->
 <div class="modal fade" id="importModal" tabindex="-1" role="dialog">

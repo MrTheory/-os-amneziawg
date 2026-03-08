@@ -111,4 +111,70 @@ class ServiceController extends ApiMutableServiceControllerBase
         return ['status' => 'error', 'message' => $result];
     }
 
+    /**
+     * GET /api/amneziawg/service/diagnostics
+     * Returns interface stats as JSON
+     */
+    public function diagnosticsAction()
+    {
+        $backend = new Backend();
+        $output  = trim((string)$backend->configdRun('amneziawg ifstats'));
+        if (empty($output)) {
+            return ['error' => 'No response from configd'];
+        }
+        $data = json_decode($output, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return ['error' => 'Invalid JSON from ifstats'];
+        }
+        return $data;
+    }
+
+    /**
+     * POST /api/amneziawg/service/testconnect
+     * Tests connectivity through the tunnel
+     */
+    public function testconnectAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+        $backend = new Backend();
+        $output  = trim((string)$backend->configdRun('amneziawg testconnect'));
+        if (empty($output)) {
+            return ['status' => 'error', 'message' => 'No response from configd'];
+        }
+        $data = json_decode($output, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return ['status' => 'error', 'message' => $output];
+        }
+        return $data;
+    }
+
+    /**
+     * POST /api/amneziawg/service/log
+     * Returns last 150 lines of amneziawg.log (POST-only: log may contain IPs)
+     */
+    public function logAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+        $backend = new Backend();
+        $output  = (string)$backend->configdRun('amneziawg log');
+        return ['log' => $output];
+    }
+
+    /**
+     * POST /api/amneziawg/service/validate
+     * Validates config without applying (dry-run)
+     */
+    public function validateAction()
+    {
+        if (!$this->request->isPost()) {
+            return ['result' => 'failed', 'message' => 'POST required'];
+        }
+        $res = $this->runAction('amneziawg validate');
+        return $res;
+    }
+
 }

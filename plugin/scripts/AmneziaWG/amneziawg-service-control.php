@@ -24,6 +24,7 @@ function awg_check_binaries(): bool
 define('AWG_PRIVKEY_FILE', '/usr/local/etc/amnezia/private.key');
 define('AWG_PRIVKEY_SENTINEL', '::file::');
 define('AWG_VERSION_FILE', '/usr/local/opnsense/mvc/app/models/OPNsense/AmneziaWG/version.txt');
+define('AWG_STOPPED_FLAG', '/var/run/amneziawg_stopped.flag');
 
 function awg_get_instances(): array
 {
@@ -376,11 +377,17 @@ switch ($action) {
             echo "ERROR: awg/awg-quick binaries not found. Install amnezia-tools package.\n";
             break;
         }
+        // Remove stopped flag so watchdog can monitor
+        if (file_exists(AWG_STOPPED_FLAG)) {
+            unlink(AWG_STOPPED_FLAG);
+        }
         awg_start_all();
         echo "OK\n";
         break;
 
     case 'stop':
+        // Set stopped flag so watchdog doesn't auto-restart
+        file_put_contents(AWG_STOPPED_FLAG, (string)getmypid());
         awg_stop_all();
         echo "OK\n";
         break;
@@ -389,6 +396,10 @@ switch ($action) {
         if (!awg_check_binaries()) {
             echo "ERROR: awg/awg-quick binaries not found. Install amnezia-tools package.\n";
             break;
+        }
+        // Remove stopped flag so watchdog can monitor
+        if (file_exists(AWG_STOPPED_FLAG)) {
+            unlink(AWG_STOPPED_FLAG);
         }
         awg_stop_all();
         awg_start_all();
@@ -459,6 +470,41 @@ switch ($action) {
             break;
         }
         echo json_encode(['status' => 'ok', 'private_key' => $privkey, 'public_key' => $pubkey]) . "\n";
+        break;
+
+    case 'validate':
+        if (!awg_check_binaries()) {
+            echo "ERROR: awg/awg-quick binaries not found.\n";
+            break;
+        }
+        $instances = awg_get_instances();
+        if (empty($instances)) {
+            echo "ERROR: no enabled instances to validate\n";
+            break;
+        }
+        $allOk = true;
+        foreach ($instances as $inst) {
+            $confPath = awg_write_conf($inst);
+            if ($confPath === '') {
+                awg_log('VALIDATE: failed to generate config for ' . $inst['interface']);
+                echo "ERROR: failed to generate config\n";
+                $allOk = false;
+                continue;
+            }
+            // awg-quick strip requires filename to be <iface>.conf
+            // Use the real config path (awg_write_conf already wrote it)
+            [$output, $rc] = awg_exec_timeout(AWG_QUICK . ' strip ' . escapeshellarg($confPath) . ' 2>&1', 10);
+            if ($rc !== 0) {
+                awg_log('VALIDATE: config invalid for ' . $inst['interface'] . ': ' . $output);
+                echo "ERROR: config validation failed: " . $output . "\n";
+                $allOk = false;
+            } else {
+                awg_log('VALIDATE: config OK for ' . $inst['interface']);
+            }
+        }
+        if ($allOk) {
+            echo "OK\n";
+        }
         break;
 
     default:

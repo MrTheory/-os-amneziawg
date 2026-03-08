@@ -2,6 +2,79 @@
 
 ---
 
+## v2.4.1 — 2026-03-08
+
+### Исправления
+
+**Диагностика: корректный парсинг netstat на FreeBSD 14**
+FreeBSD 14 `netstat -ibn` имеет колонки `Idrop` и `Coll`, а Link-строка содержит Address. Индексы колонок исправлены: Ipkts=4, Ibytes=7, Opkts=8, Obytes=10. Ранее показывало 0 B.
+
+**Диагностика: uptime через mtime PID-файла**
+PID-файл содержит PID давно завершившегося скрипта service-control.php, а не демона. `ps -o etime=` не мог его найти. Теперь uptime рассчитывается из mtime PID-файла (= момент старта туннеля). Формат: `2d 5h 30m` / `45m 12s`.
+
+**Validate: awg-quick strip требует именования файла <iface>.conf**
+`tempnam()` создавал файл с рандомным именем — awg-quick отвергал его. Теперь validate использует реальный путь конфига (`/usr/local/etc/amnezia/awg0.conf`), что безопасно — `strip` только читает.
+
+---
+
+## v2.4.0 — 2026-03-08
+
+### Мониторинг и диагностика (MED-3, MED-4, MED-5, MED-6, MED-7)
+
+**Вкладка Diagnostics**
+Новая вкладка в GUI с таблицей статистики интерфейса: статус, IP, MTU, public key, listen port, peer endpoint, latest handshake, transfer rx/tx, netstat packets, uptime. Автообновление каждые 30 секунд.
+
+**Test Connection**
+Кнопка проверки связности через туннель — отправляет HTTP-запрос к `cp.cloudflare.com/generate_204` через интерфейс awg0 (curl --interface). Результат: Success/Failed с сообщением.
+
+**Validate Config**
+Кнопка проверки конфига без применения (dry-run). Генерирует конфиг во временный файл, проверяет через `awg-quick strip`, удаляет. Показывает результат в диалоге.
+
+**Вкладка Log**
+Просмотр последних 150 строк `/var/log/amneziawg.log` прямо в GUI. POST-only эндпоинт (лог содержит IP-адреса). Кнопка Refresh.
+
+**Copy Debug Info**
+Кнопка сбора диагностики + логов в модальное окно. Собирает diagnostics JSON + log параллельно, форматирует для копирования при обращении в поддержку.
+
+### Watchdog (MED-3)
+
+**amneziawg-watchdog.php**
+Автоперезапуск туннеля при падении. Проверяет каждую минуту через cron (зарегистрирован в `amneziawg.inc` → `amneziawg_cron()`). Проверяет: PID alive + интерфейс awg0 существует. При обнаружении проблемы — `configdRun('amneziawg restart')`.
+
+**Stopped flag** (`/var/run/amneziawg_stopped.flag`)
+При ручном Stop устанавливается флаг — watchdog не перезапускает. При Start/Restart — флаг удаляется.
+
+**Поле watchdog в General.xml**
+Новый чекбокс «Enable Watchdog» на вкладке General. По умолчанию выключен.
+
+### Улучшение install.sh (MED-8, MED-9)
+
+**Определение существующего конфига**
+install.sh теперь ищет `/usr/local/etc/amnezia/awg*.conf` и проверяет config.xml на наличие данных. При обнаружении конфига на диске и отсутствии в config.xml — предлагает импортировать.
+
+**Импорт конфига**
+При первой установке парсит найденный .conf файл и записывает все поля (Address, DNS, Jc/Jmin/Jmax, S1/S2, H1-H4, Peer) в config.xml через PHP OPNsense API. Приватный ключ → в private.key, sentinel в config.xml.
+
+**Защита от перезаписи**
+Проверка `CONFIG_XML_HAS_AWG` — если config.xml уже содержит настройки (peer_public_key), импорт пропускается.
+
+### Новые скрипты и configd actions
+
+- `amneziawg-ifstats.php` → `[ifstats]`
+- `amneziawg-testconnect.php` → `[testconnect]`
+- `amneziawg-watchdog.php` → `[watchdog]`
+- `validate` case в service-control.php → `[validate]`
+- `[log]` → tail -n 150
+
+### Новые API-эндпоинты
+
+- `GET /api/amneziawg/service/diagnostics` — JSON со статистикой интерфейса
+- `POST /api/amneziawg/service/testconnect` — тест связности через туннель
+- `POST /api/amneziawg/service/log` — последние 150 строк лога
+- `POST /api/amneziawg/service/validate` — валидация конфига (dry-run)
+
+---
+
 ## v2.3.2 — 2026-03-08
 
 ### Исправления
