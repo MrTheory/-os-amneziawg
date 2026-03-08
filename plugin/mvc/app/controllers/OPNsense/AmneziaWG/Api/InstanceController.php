@@ -93,7 +93,7 @@ class InstanceController extends ApiMutableModelControllerBase
             if ($val !== '') {
                 $intVal = (int)$val;
                 if ($intVal < 5) {
-                    $validationErrors["instance.{$hf}"] = strtoupper($hf) . ' must be >= 5 (values 1-4 are reserved for WireGuard packet types)';
+                    $validationErrors["instance.{$hf}"] = strtoupper($hf) . ' must be in range 5-4294967295 (values 1-4 are reserved)';
                 } elseif (in_array($intVal, $hValues, true)) {
                     $validationErrors["instance.{$hf}"] = strtoupper($hf) . ' must not have the same value as another H parameter';
                 } else {

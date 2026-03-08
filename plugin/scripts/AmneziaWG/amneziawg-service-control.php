@@ -216,9 +216,50 @@ function awg_up(array $inst): void
     [$output, $rc] = awg_exec_timeout(AWG_QUICK . ' up ' . escapeshellarg($path) . ' 2>&1', 30);
     awg_log('up ' . $inst['interface'] . ' rc=' . $rc . ' | ' . $output);
     if ($rc === 0) {
-        if (file_put_contents(AWG_PID_FILE, getmypid()) === false) {
-            awg_log('WARNING: failed to write PID file: ' . AWG_PID_FILE);
+        awg_start_sentinel();
+    }
+}
+
+/**
+ * Start a sentinel process via daemon(8) so OPNsense Dashboard can track
+ * service status through the PID file. AmneziaWG is a kernel module with
+ * no long-running daemon, so we spawn a lightweight "sleep infinity" process.
+ * daemon(8) writes the child PID to AWG_PID_FILE automatically.
+ */
+function awg_start_sentinel(): void
+{
+    // Kill any existing sentinel first
+    awg_stop_sentinel();
+    // FreeBSD sleep does not support "infinity" — use large value (~31 years)
+    exec('/usr/sbin/daemon -p ' . escapeshellarg(AWG_PID_FILE) . ' /bin/sleep 999999999 2>&1', $out, $rc);
+    if ($rc !== 0) {
+        awg_log('WARNING: failed to start sentinel daemon rc=' . $rc . ': ' . implode(' ', $out));
+    } else {
+        // Wait briefly for daemon(8) to write PID file
+        usleep(200000); // 200ms
+        if (file_exists(AWG_PID_FILE)) {
+            awg_log('Sentinel started, pid=' . trim(file_get_contents(AWG_PID_FILE)));
+        } else {
+            awg_log('WARNING: sentinel started but PID file not created');
         }
+    }
+}
+
+/**
+ * Stop sentinel process and remove PID file.
+ */
+function awg_stop_sentinel(): void
+{
+    if (file_exists(AWG_PID_FILE)) {
+        $pid = (int)trim(@file_get_contents(AWG_PID_FILE));
+        if ($pid > 0 && awg_pid_alive($pid)) {
+            exec('kill ' . $pid . ' 2>/dev/null');
+            usleep(100000); // 100ms
+            if (awg_pid_alive($pid)) {
+                exec('kill -9 ' . $pid . ' 2>/dev/null');
+            }
+        }
+        @unlink(AWG_PID_FILE);
     }
 }
 
@@ -229,9 +270,7 @@ function awg_down(array $inst): void
         [$output, $rc] = awg_exec_timeout(AWG_QUICK . ' down ' . escapeshellarg($path) . ' 2>&1', 30);
         awg_log('down ' . $inst['interface'] . ' rc=' . $rc . ' | ' . $output);
     }
-    if (file_exists(AWG_PID_FILE)) {
-        unlink(AWG_PID_FILE);
-    }
+    awg_stop_sentinel();
 }
 
 // BUG-3: awg_is_up() was declared but never used — removed.
@@ -348,9 +387,7 @@ function awg_stop_all(): void
             awg_log('down ' . $iface . ' rc=' . $rc . ' | ' . $output);
         }
     }
-    if (file_exists(AWG_PID_FILE)) {
-        unlink(AWG_PID_FILE);
-    }
+    awg_stop_sentinel();
     awg_log('awg_stop_all: done');
 }
 
@@ -360,9 +397,7 @@ function awg_start_all(): bool
     $instances = awg_get_instances();
     if (empty($instances)) {
         awg_log('WARNING: no enabled instances to start');
-        if (file_exists(AWG_PID_FILE)) {
-            unlink(AWG_PID_FILE);
-        }
+        awg_stop_sentinel();
         return false;
     }
     foreach ($instances as $inst) {

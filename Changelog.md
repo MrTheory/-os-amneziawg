@@ -2,6 +2,30 @@
 
 ---
 
+## v2.5.0 — 2026-03-08
+
+### Исправления
+
+**Dashboard: сервис показывал "Stopped" при работающем туннеле**
+OPNsense Dashboard проверяет статус сервиса через PID-файл (`pgrep -nF pidfile`). Старый код записывал `getmypid()` — PID скрипта service-control.php, который завершался сразу после `awg-quick up`. Теперь при старте туннеля запускается sentinel-процесс через `daemon(8)` + `sleep 999999999` — легковесный процесс, который живёт пока туннель активен. `daemon -p` автоматически записывает PID дочернего процесса в файл. Dashboard корректно отображает Running/Stopped. Примечание: FreeBSD `sleep` не поддерживает `infinity` (GNU-расширение), используется числовое значение (~31 год).
+
+**H1-H4: сообщение валидации отображало `&gt;=` вместо `>=`**
+Символ `>=` в PHP-строке экранировался при отображении в HTML. Заменено на текстовое описание `"must be in range 5-4294967295"` без спецсимволов.
+
+### Тесты
+
+**PHPUnit тест-сьют (161 тест, 417 assertions)**
+Структурные и security-тесты для всех слоёв плагина:
+- Модели XML: маски полей, типы, диапазоны H1-H4/S1-S2/Jc/Jmin/Jmax
+- Контроллеры: POST enforcement, sentinel ключа, H1-H4 cross-validation
+- Скрипты: escapeshellarg, flock, stopped flag, proc_open timeout, sentinel daemon
+- install.sh: shell safety, pkg install, uninstall cleanup, config detection
+- configd actions: все 12 действий, отсутствие timeout field
+- ACL/Menu структура
+- Volt GUI: вкладки, кнопки, auto-refresh, i18n, POST для логов
+
+---
+
 ## v2.4.1 — 2026-03-08
 
 ### Исправления
